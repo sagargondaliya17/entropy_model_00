@@ -1,0 +1,7 @@
+# Local large datasets (keep outside GitHub)
+data/options_daily.csv
+data/option_daily.csv
+
+# Python
+__pycache__/
+*.pyc

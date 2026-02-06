@@ -40,8 +40,12 @@ class EntropyStateModel:
         return kl_divergence(self.state_prob, self.prev_state_prob)
 
 class MarketEncoder(nn.Module):
-    def __init__(self, in_dim):
+    def __init__(self, in_dim=None, input_dim=None):
         super().__init__()
+        if in_dim is None and input_dim is None:
+            raise ValueError("Provide either in_dim or input_dim.")
+        if in_dim is None:
+            in_dim = input_dim
         self.linear = nn.Linear(in_dim, NUM_STATES)
 
     def forward(self, x):
@@ -60,14 +64,48 @@ class OptionEncoder(nn.Module):
 class MacroCalendar:
     def __init__(self, df):
         self.events = []
-        for _, r in df.iterrows():
-            self.events.append({
-                "date": datetime.fromisoformat(r["date"]),
-                "pre": int(r["pre_window"]),
-                "post": int(r["post_window"]),
-                "entropy": float(r["entropy_weight"]),
-                "transition": float(r["transition_shock"])
-            })
+
+        cols = set(df.columns)
+        if {"date", "pre_window", "post_window", "entropy_weight", "transition_shock"}.issubset(cols):
+            for _, r in df.iterrows():
+                self.events.append({
+                    "date": datetime.fromisoformat(str(r["date"])),
+                    "pre": int(r["pre_window"]),
+                    "post": int(r["post_window"]),
+                    "entropy": float(r["entropy_weight"]),
+                    "transition": float(r["transition_shock"])
+                })
+            return
+
+        if "DATE" in cols:
+            entropy_cols = {
+                "RBI_POLICY": 0.25,
+                "FOMC": 0.20,
+                "CPI_RELEASE": 0.15,
+                "GDP_RELEASE": 0.15,
+                "BUDGET_DAY": 0.30,
+            }
+            for _, r in df.iterrows():
+                entropy = 0.0
+                for c, w in entropy_cols.items():
+                    if c in df.columns:
+                        entropy += float(r[c]) * w
+                if entropy <= 0:
+                    continue
+                self.events.append({
+                    "date": datetime.fromisoformat(str(r["DATE"])),
+                    "pre": 2,
+                    "post": 2,
+                    "entropy": float(entropy),
+                    "transition": float(entropy),
+                })
+            return
+
+        raise ValueError(
+            "Unsupported macro schema. Expected either "
+            "['date','pre_window','post_window','entropy_weight','transition_shock'] "
+            "or a DATE + event flag columns schema."
+        )
 
     def entropy_effect(self, date):
         total = 0.0
